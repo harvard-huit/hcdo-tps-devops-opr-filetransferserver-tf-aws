@@ -1,0 +1,57 @@
+# -----------------------------------------------------------------------------
+# This workflow will validate and test a sample Terraform app.
+# I will trigger on PR to main, A merge to main, and a published release
+# -----------------------------------------------------------------------------
+name: Build App
+run-name: Build App, Initiated by ${{ github.actor }}
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform"
+        type: choice
+        required: true
+        default: "plan"
+        options:
+          - "plan"
+          - "apply"
+      app_environment:
+        description: "App Environment"
+        type: choice
+        required: true
+        default: "dev"
+        options:
+          - "dev"
+          - "test"
+          - "prod"
+          - "sand"
+          - "int"
+          - "stage"
+      runner:
+        description: "Runner label to use"
+        type: choice
+        required: true
+        default: "arc-runner-set-com"
+        options:
+          - "huit"
+          - "arc-runner-set-com"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: write # This is required for actions/checkout
+
+jobs:
+  BuildApp:
+    uses: HUIT-Cloud-Architecture/hcdo-cto-reusable-workflows/.github/workflows/terraform_build_app.yaml@v2
+    with:
+      provider_name: aws
+      app_environment: ${{ inputs.app_environment }}
+      action: ${{ inputs.action }}
+      runner: ${{ inputs.runner }}
+      TF_LOG: "WARN" # Optional: Set the Terraform log level. Valid values are TRACE, DEBUG, INFO, WARN, or ERROR. Default is WARN.
+      debug: "true"
+    secrets: inherit

@@ -1,0 +1,61 @@
+# -----------------------------------------------------------------------------
+# This workflow will validate and test a sample AWS Terraform module.
+# I will trigger on PR to main, A merge to main, and a published release
+# -----------------------------------------------------------------------------
+name: Deploy Workflow MKdocs
+run-name: Deploy MKdocs, Initiated by ${{ github.actor }}
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      bucket_name:
+        description: "This is the name of the S3 bucket to upload the document."
+        required: true
+        type: string
+        default: "hcdo-cto-mkdocs"
+      debug:
+        description: "Set to true to enable debug mode."
+        required: false
+        type: boolean
+        default: false
+      runner:
+        description: "This is the name of the runner to use for the job."
+        type: choice
+        options:
+          - huit
+          - arc-runner-set-com
+        default: "arc-runner-set-com"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: read # This is required for actions/checkout
+
+jobs:
+  DeployMkdocsRelease:
+    if: github.event_name == 'release'
+    uses: HUIT-Cloud-Architecture/hcdo-cto-reusable-workflows/.github/workflows/deploy_mkdoc.yaml@v2
+    with:
+      document_type: "templates"
+      document_cloud: "aws"
+      document_mkdoc_name: "infrastructure.md"
+      document_local_name: "./README.md"
+      # debug: false
+      bucket_name: "hcdo-cto-mkdocs" # Set as default in the reusable workflow, only use to override
+      runner: "arc-runner-set-com" # Set as default in the reusable workflow, only use to override
+    secrets: inherit
+  DeployMkdocsOnWorkflowDispatch:
+    if: github.event_name == 'workflow_dispatch'
+    uses: HUIT-Cloud-Architecture/hcdo-cto-reusable-workflows/.github/workflows/deploy_mkdoc.yaml@v2
+    with:
+      document_type: "templates"
+      document_cloud: "aws"
+      document_mkdoc_name: "infrastructure.md"
+      document_local_name: "./README.md"
+      # debug: ${{ inputs.debug }}
+      bucket_name: ${{ inputs.bucket_name }} # Set as default in the reusable workflow, only use to override
+      runner: ${{ inputs.runner}} # Set as default in the reusable workflow, only use to override
+    secrets: inherit

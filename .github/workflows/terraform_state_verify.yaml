@@ -1,0 +1,59 @@
+# -----------------------------------------------------------------------------
+# This workflow will refresh the state of an AWS application defined in the Terraform configuration in this repo.
+# It is triggered manually by the user and will prompt for the Terraform 'Action', app environment name, and the runner. These input variables are meant
+# as an example and can be modified to fit the needs of the Terraform configuration in this repo.
+# -----------------------------------------------------------------------------
+name: Terraform Verify
+run-name: Build App, Initiated by ${{ github.actor }}
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform"
+        type: choice
+        required: true
+        default: "plan"
+        options:
+          - "plan"
+          - "apply"
+      app_environment:
+        description: "This is the name of your to-be-deployed environment, and this value will be used in various resource names this app creates."
+        type: choice
+        required: true
+        default: "dev"
+        options: # This is a list of possible values for the input variable, you can add additional ones if you have more environment.
+          - "dev"
+          - "test"
+          - "prod"
+          - "sand"
+          - "int"
+          - "stage"
+      runner:
+        description: "Runner label to use"
+        type: choice
+        required: true
+        default: "arc-runner-set-com"
+        options:
+          - "huit"
+          - "arc-runner-set-com"
+# Environment variables can be set at several different scopes within a given workflow, including the workflow level, the job level, and the step level.
+# This variable is applied at the workflow scope.
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: write # This is required for actions/checkout
+
+jobs:
+  AppVerify:
+    uses: HUIT-Cloud-Architecture/hcdo-cto-reusable-workflows/.github/workflows/terraform_state_verify.yaml@v2
+    with:
+      provider_name: aws
+      action: ${{ inputs.action }}
+      app_environment: ${{ inputs.app_environment }}
+      runner: ${{ inputs.runner }}
+      debug: "true"
+    secrets: inherit

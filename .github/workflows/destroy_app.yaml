@@ -1,0 +1,51 @@
+# -----------------------------------------------------------------------------
+# This workflow will validate and test a sample Terraform app.
+# I will trigger on PR to main, A merge to main, and a published release
+# -----------------------------------------------------------------------------
+name: Destroy App
+run-name: Destroy App, Initiated by ${{ github.actor }}
+on:
+  workflow_dispatch:
+    inputs:
+      app_environment:
+        description: "App Environment"
+        type: choice
+        required: true
+        default: "dev"
+        options:
+          - "dev"
+          - "test"
+          - "prod"
+          - "sand"
+          - "int"
+          - "stage"
+      runner:
+        description: "Runner label to use"
+        type: choice
+        required: true
+        default: "arc-runner-set-com"
+        options:
+          - "huit"
+          - "arc-runner-set-com"
+      approve_destroy:
+        description: "Type 'destroy' to confirm."
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: write # This is required for actions/checkout
+
+jobs:
+  BuildApp:
+    uses: HUIT-Cloud-Architecture/hcdo-cto-reusable-workflows/.github/workflows/terraform_destroy_app.yaml@v2
+    with:
+      provider_name: aws
+      app_environment: ${{ inputs.app_environment }}
+      approve_destroy: ${{ inputs.approve_destroy }}
+      runner: ${{ inputs.runner }}
+      debug: "true"
+    secrets: inherit

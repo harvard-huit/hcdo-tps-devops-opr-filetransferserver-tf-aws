@@ -1,0 +1,458 @@
+# -----------------------------------------------------------------------------
+# This workflow will validate and test a sample OCI Terraform app.
+# I will trigger on PR to main, A merge to main, and a published release
+# -----------------------------------------------------------------------------
+name: Example workflow (Terraform)
+run-name: Terraform Workflow, Initiated by ${{ github.actor }}
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  release:
+    types: [published]
+env:
+  TERRAFORM_VERSION: 1.7.2
+  DEBUG: true
+
+# -----------------------------------------------------------------------------
+# Only allow a single workflow run at a time.  This is needed since the OCI
+# object storage backend does not prevent concurrent writes to the same object
+# (state file).  This will prevent the state file from being corrupted.
+# -----------------------------------------------------------------------------
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: read # This is required for actions/checkout
+
+jobs:
+  Start-Workflow-Validate-Dev:
+    if: github.event_name == 'pull_request'|| github.event_name == 'workflow_dispatch'
+    environment: dev
+    permissions:
+      id-token: write # Job to connect to Identity Token to receive the token
+      contents: read # Read access to the repository
+    runs-on:
+      - ubuntu-latest
+    steps:
+      # -----------------------------------------------------------------------------
+      # Print Evn Specific Variables for debugging
+      # -----------------------------------------------------------------------------
+      - name: DEBUG - Print Envionrment Specific Varable
+        if: env.DEBUG == 'true'
+        run: |
+          echo "The Environment Name is: $ENV_NAME"
+          echo "The OCI Region for the $ENV_NAME environment is: $OCI_REGION"
+          echo "The OCI Compartment OCID for $ENV_NAME environment is: $OCI_COMPARTMENT"
+          echo "The GITHUB_BASE_REF is: $GITHUB_BASE_REF_VAR"
+          echo "The GITHUB_HEAD_REF is: $GITHUB_HEAD_REF_VAR"
+          echo "The GITHUB_REF_NAME is: $GITHUB_REF_NAME_VAR"
+          echo "The GITHUB_REF_TYPE is: $GITHUB_REF_TYPE_VAR"
+          echo "The COMPARTMENT_ENV is: $COMPARTMENT_ENV"
+        env:
+          ENV_NAME: ${{ vars.ENV_NAME }}
+          COMPARTMENT_ENV: ${{ vars.COMPARTMENT_ENV }}
+          OCI_REGION: ${{ vars.OCI_REGION }}
+          GITHUB_HEAD_REF_VAR: ${{ github.head_ref }}
+          GITHUB_BASE_REF_VAR: ${{ github.base_ref }}
+          GITHUB_REF_NAME_VAR: ${{ github.ref_name }}
+          GITHUB_REF_TYPE_VAR: ${{ github.ref_type }}
+
+      # -----------------------------------------------------------------------------
+      # Print GITHUB_VAR Variable for debugging
+      # -----------------------------------------------------------------------------
+      - name: DEBUG - Dump job github var
+        if: env.DEBUG == 'true'
+        run: |
+          echo "$GITHUB_VAR"
+        env:
+          GITHUB_VAR: ${{ toJson(github) }}
+
+  # -----------------------------------------------------------------------------
+  # This job will trigger on PR to main
+  # -----------------------------------------------------------------------------
+  Validate-Dev:
+    needs: [Start-Workflow-Validate-Dev]
+    if: github.event_name == 'pull_request'
+    environment: dev
+    permissions:
+      id-token: write # Job to connect to Identity Token to receive the token
+      contents: read # Read access to the repository
+    runs-on:
+      - ubuntu-latest
+    steps:
+      # Checkout Repository
+      - name: Check out Git Repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------------
+      # This pulls the terraform backend and terraform.tfvars
+      # from the github Environment ENV_NAME (./env/[ENV_NAME]/) to the root dir "./"
+      # -----------------------------------------------------------------------------
+      - name: Setup backend
+        run: |
+          cp ./env/$ENV_NAME/*.tf ./
+          cp ./env/$ENV_NAME/*.tfvars ./
+        env:
+          ENV_NAME: ${{ vars.ENV_NAME }}
+
+      - name: DEBUG - Print Envionrment Specific Varable
+        if: env.DEBUG == 'true'
+        run: |
+          echo "The Environment Name is: $ENV_NAME"
+          echo "The COMPARTMENT_ENV is: $COMPARTMENT_ENV"
+        env:
+          ENV_NAME: ${{ vars.ENV_NAME }}
+          COMPARTMENT_ENV: ${{ vars.COMPARTMENT_ENV }}
+
+      # -----------------------------------------------------------------------------
+      # This step will create an OCI CLI config file.  It will also install the
+      # OCI CLI.  This step was needed since the 'terraform validate' cannot accept
+      # TR_VAR variables which are needed for the OCI provider.  The provider is
+      # now using the 'config_file_profile' and refrences the OCI CLI 'DEFAULT'config
+      #    TODO - Look for alternative to installing OCI CLI
+      # -----------------------------------------------------------------------------
+
+      # -----------------------------------------------------------------------------
+      # NON PROD Compartment
+      # -----------------------------------------------------------------------------
+      - name: "Setup OCI Config and Pem File - NONPROD Compartment"
+        if: vars.COMPARTMENT_ENV =='nonprod'
+        run: |
+          mkdir ~/.oci
+          echo "${{secrets.VAULT_NON_PROD_OCI_CONFIG}}" > ~/.oci/config
+          echo "${{secrets.VAULT_NON_PROD_OCI_SSH_KEY}}" > ~/.oci/oci_api_key.pem
+
+      - name: "Setup OCI S3 Compatible Backend Creds - NONPROD Compartment"
+        if: vars.COMPARTMENT_ENV == 'nonprod'
+        run: |
+          mkdir ~/.aws
+          echo "${{secrets.VAULT_NON_PROD_AWS_CREDENTIALS}}" > ~/.aws/credentials
+
+      # -----------------------------------------------------------------------------
+      # Production Compartment
+      # -----------------------------------------------------------------------------
+      - name: "Setup OCI Config and Pem File - PROD Compartment"
+        if: vars.COMPARTMENT_ENV == 'prod'
+        run: |
+          mkdir ~/.oci
+          echo "${{secrets.VAULT_PROD_OCI_CONFIG}}" > ~/.oci/config
+          echo "${{secrets.VAULT_PROD_OCI_SSH_KEY}}" > ~/.oci/oci_api_key.pem
+
+      - name: "Setup OCI S3 Compatible Backend Creds - PROD Compartment"
+        if: vars.COMPARTMENT_ENV == 'prod'
+        run: |
+          mkdir ~/.aws
+          echo "${{secrets.VAULT_PROD_AWS_CREDENTIALS}}" > ~/.aws/credentials
+
+      # -----------------------------------------------------------------------------
+      # Print github.event_name Variable for debugging
+      # -----------------------------------------------------------------------------
+      - name: DEBUG - Echo github event
+        if: env.DEBUG == 'true'
+        run: |
+          echo ${{ github.event_name }}
+
+      # -----------------------------------------------------------------------------
+      # Setup Terraform
+      # -----------------------------------------------------------------------------
+      - name: Setup Terraform with specified version on the runner
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      # -----------------------------------------------------------------------------
+      # This will pull the gitHub ssh private key secret to allow
+      # git clone of souce terraform modules
+      # -----------------------------------------------------------------------------
+      - name: Terraform init
+        id: init
+        run: |
+          eval `ssh-agent -s`
+          ssh-add - <<< '${{ secrets.TF_REPO_MODULE_SSH_KEY }}'  
+          terraform init
+
+      - name: Terraform validate
+        id: validate
+        run: |
+          terraform validate
+
+      - name: Terraform plan
+        id: plan
+        run: |
+          terraform plan -input=false
+        continue-on-error: true
+
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+  End-Workflow-Validate-Dev:
+    needs: [Validate-Dev]
+    if: github.event_name == 'pull_request'
+    environment: dev
+    permissions:
+      id-token: write # Job to connect to Identity Token to receive the token
+      contents: read # Read access to the repository
+    runs-on:
+      - ubuntu-latest
+    steps:
+      # -----------------------------------------------------------------------------
+      # Print Evn Specific Variables for debugging
+      # -----------------------------------------------------------------------------
+      - name: DEBUG - Print Envionrment Specific Varable
+        if: env.DEBUG == 'true'
+        run: |
+          echo "The Environment Name is: $ENV_NAME"
+          echo "The OCI Region for the $ENV_NAME environment is: $OCI_REGION"
+          echo "The OCI Compartment OCID for $ENV_NAME environment is: $OCI_COMPARTMENT"
+          echo "The GITHUB_BASE_REF is: $GITHUB_BASE_REF_VAR"
+          echo "The GITHUB_HEAD_REF is: $GITHUB_HEAD_REF_VAR"
+          echo "The GITHUB_REF_NAME is: $GITHUB_REF_NAME_VAR"
+          echo "The GITHUB_REF_TYPE is: $GITHUB_REF_TYPE_VAR"
+        env:
+          ENV_NAME: ${{ vars.ENV_NAME }}
+          OCI_REGION: ${{ vars.OCI_REGION }}
+          OCI_COMPARTMENT: ${{ vars.OCI_COMPARTMENT }}
+          GITHUB_HEAD_REF_VAR: ${{ github.head_ref }}
+          GITHUB_BASE_REF_VAR: ${{ github.base_ref }}
+          GITHUB_REF_NAME_VAR: ${{ github.ref_name }}
+          GITHUB_REF_TYPE_VAR: ${{ github.ref_type }}
+
+      # -----------------------------------------------------------------------------
+      # Print GITHUB_VAR Variable for debugging
+      # -----------------------------------------------------------------------------
+      - name: DEBUG - Dump job github var
+        if: env.DEBUG == 'true'
+        run: |
+          echo "$GITHUB_VAR"
+        env:
+          GITHUB_VAR: ${{ toJson(github) }}
+
+  # -----------------------------------------------------------------------------
+  # This job will trigger on Published Release to main
+  # -----------------------------------------------------------------------------
+  Start-Workflow-Apply-Dev:
+    # needs: [ Compartment-Build-Validate ]
+    if: github.event_name == 'release'  && github.event.release.target_commitish == 'main'
+    environment: dev
+    permissions:
+      id-token: write # Job to connect to Identity Token to receive the token
+      contents: read # Read access to the repository
+    runs-on:
+      - ubuntu-latest
+    steps:
+      # -----------------------------------------------------------------------------
+      # Print Evn Specific Variables for debugging
+      # -----------------------------------------------------------------------------
+      - name: DEBUG - Print Envionrment Specific Varable
+        if: env.DEBUG == 'true'
+        run: |
+          echo "The Environment Name is: $ENV_NAME"
+          echo "The OCI Region for the $ENV_NAME environment is: $OCI_REGION"
+          echo "The OCI Compartment OCID for $ENV_NAME environment is: $OCI_COMPARTMENT"
+          echo "The GITHUB_BASE_REF is: $GITHUB_BASE_REF_VAR"
+          echo "The GITHUB_HEAD_REF is: $GITHUB_HEAD_REF_VAR"
+          echo "The GITHUB_REF_NAME is: $GITHUB_REF_NAME_VAR"
+          echo "The GITHUB_REF_TYPE is: $GITHUB_REF_TYPE_VAR"
+        env:
+          ENV_NAME: ${{ vars.ENV_NAME }}
+          OCI_REGION: ${{ vars.OCI_REGION }}
+          OCI_COMPARTMENT: ${{ vars.OCI_COMPARTMENT }}
+          GITHUB_HEAD_REF_VAR: ${{ github.head_ref }}
+          GITHUB_BASE_REF_VAR: ${{ github.base_ref }}
+          GITHUB_REF_NAME_VAR: ${{ github.ref_name }}
+          GITHUB_REF_TYPE_VAR: ${{ github.ref_type }}
+
+      # -----------------------------------------------------------------------------
+      # Print GITHUB_VAR Variable for debugging
+      # -----------------------------------------------------------------------------
+      - name: DEBUG - Dump job github var
+        if: env.DEBUG == 'true'
+        run: |
+          echo "$GITHUB_VAR"
+        env:
+          GITHUB_VAR: ${{ toJson(github) }}
+
+  Apply-Dev:
+    needs: [Start-Workflow-Apply-Dev]
+    if: github.event_name == 'release' && github.event.release.target_commitish == 'main'
+    environment: dev
+    permissions:
+      id-token: write # Job to connect to Identity Token to receive the token
+      contents: read # Read access to the repository
+    runs-on:
+      - ubuntu-latest
+    steps:
+      # -----------------------------------------------------------------------------
+      # Print GITHUB_VAR Variable for debugging
+      # -----------------------------------------------------------------------------
+      - name: DEBUG - Dump job github var
+        if: env.DEBUG == 'true'
+        run: |
+          echo "$GITHUB_VAR"
+        env:
+          GITHUB_VAR: ${{ toJson(github) }}
+
+      # Checkout Repository
+      - name: Check out Git Repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------------
+      # Generate the Relase Tag
+      # -----------------------------------------------------------------------------
+      - uses: actions/checkout@v4
+      - name: Set env
+        if: github.event_name == 'release'
+        id: set_env
+        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+
+      - name: Output Release Tage
+        if: github.event_name == 'release'
+        run: |
+          echo $RELEASE_VERSION
+          echo ${{ env.RELEASE_VERSION }}
+
+      # -----------------------------------------------------------------------------
+      # This pulls the terraform backend and terraform.tfvars
+      # from the github Environment ENV_NAME (./env/[ENV_NAME]/) to the root dir "./"
+      # -----------------------------------------------------------------------------
+      - name: Setup backend
+        run: |
+          cp ./env/$ENV_NAME/*.tf ./
+          cp ./env/$ENV_NAME/*.tfvars ./
+        env:
+          ENV_NAME: ${{ vars.ENV_NAME }}
+
+      # -----------------------------------------------------------------------------
+      # This step will create an OCI CLI config file.  It will also install the
+      # OCI CLI.  This step was needed since the 'terraform validate' cannot accept
+      # TR_VAR variables which are needed for the OCI provider.  The provider is
+      # now using the 'config_file_profile' and refrences the OCI CLI 'DEFAULT'config
+      #    TODO - Look for alternative to installing OCI CLI
+      # -----------------------------------------------------------------------------
+
+      # -----------------------------------------------------------------------------
+      # NON PROD Compartment
+      # -----------------------------------------------------------------------------
+      - name: "Setup OCI Config and Pem File - NONPROD Compartment"
+        if: vars.COMPARTMENT_ENV == 'nonprod'
+        run: |
+          mkdir ~/.oci
+          echo "${{secrets.VAULT_NON_PROD_OCI_CONFIG}}" > ~/.oci/config
+          echo "${{secrets.VAULT_NON_PROD_OCI_SSH_KEY}}" > ~/.oci/oci_api_key.pem
+
+      - name: "Setup OCI S3 Compatible Backend Creds - NONPROD Compartment"
+        if: vars.COMPARTMENT_ENV == 'nonprod'
+        run: |
+          mkdir ~/.aws
+          echo "${{secrets.VAULT_NON_PROD_AWS_CREDENTIALS}}" > ~/.aws/credentials
+
+      # -----------------------------------------------------------------------------
+      #  Production Compartment
+      # -----------------------------------------------------------------------------
+      - name: "Setup OCI Config and Pem File - PROD Compartment"
+        if: vars.COMPARTMENT_ENV == 'prod'
+        run: |
+          mkdir ~/.oci
+          echo "${{secrets.VAULT_PROD_OCI_CONFIG}}" > ~/.oci/config
+          echo "${{secrets.VAULT_PROD_OCI_SSH_KEY}}" > ~/.oci/oci_api_key.pem
+
+      - name: "Setup OCI S3 Compatible Backend Creds - PROD Compartment"
+        if: vars.COMPARTMENT_ENV == 'prod'
+        run: |
+          mkdir ~/.aws
+          echo "${{secrets.VAULT_PROD_AWS_CREDENTIALS}}" > ~/.aws/credentials
+
+      # -----------------------------------------------------------------------------
+      # Print github.event_name Variable for debugging
+      # -----------------------------------------------------------------------------
+      - name: DEBUG - Echo github event
+        if: env.DEBUG == 'true'
+        run: |
+          echo ${{ github.event_name }}
+
+      # -----------------------------------------------------------------------------
+      # Setup Terraform
+      # -----------------------------------------------------------------------------
+      - name: Setup Terraform with specified version on the runner
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      # -----------------------------------------------------------------------------
+      # This will pull the gitHub ssh private key secret to allow
+      # git clone of souce terraform modules
+      # -----------------------------------------------------------------------------
+      - name: Terraform init
+        id: init
+        run: |
+          eval `ssh-agent -s`
+          ssh-add - <<< '${{ secrets.TF_REPO_MODULE_SSH_KEY }}'  
+          terraform init
+
+      - name: Terraform validate
+        id: validate
+        run: |
+          terraform validate
+
+      - name: Terraform plan
+        id: plan
+        run: |
+          terraform plan -input=false
+        continue-on-error: true
+
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+      - name: Apply Remaining
+        id: apply_remaining
+        run: |
+          terraform apply -auto-approve
+
+  End-Workflow-Apply-Dev:
+    needs: [Apply-Dev]
+    environment: dev
+    permissions:
+      id-token: write # Job to connect to Identity Token to receive the token
+      contents: read # Read access to the repository
+    runs-on:
+      - ubuntu-latest
+    steps:
+      # -----------------------------------------------------------------------------
+      # Print Evn Specific Variables for debugging
+      # -----------------------------------------------------------------------------
+      - name: DEBUG - Print Environment Specific Varable
+        if: env.DEBUG == 'true'
+        run: |
+          echo "The Environment Name is: $ENV_NAME"
+          echo "The OCI Region for the $ENV_NAME environment is: $OCI_REGION"
+          echo "The OCI Compartment OCID for $ENV_NAME environment is: $OCI_COMPARTMENT"
+          echo "The GITHUB_BASE_REF is: $GITHUB_BASE_REF_VAR"
+          echo "The GITHUB_HEAD_REF is: $GITHUB_HEAD_REF_VAR"
+          echo "The GITHUB_REF_NAME is: $GITHUB_REF_NAME_VAR"
+          echo "The GITHUB_REF_TYPE is: $GITHUB_REF_TYPE_VAR"
+        env:
+          ENV_NAME: ${{ vars.ENV_NAME }}
+          OCI_REGION: ${{ vars.OCI_REGION }}
+          OCI_COMPARTMENT: ${{ vars.OCI_COMPARTMENT }}
+          GITHUB_HEAD_REF_VAR: ${{ github.head_ref }}
+          GITHUB_BASE_REF_VAR: ${{ github.base_ref }}
+          GITHUB_REF_NAME_VAR: ${{ github.ref_name }}
+          GITHUB_REF_TYPE_VAR: ${{ github.ref_type }}
+
+      # -----------------------------------------------------------------------------
+      # Print GITHUB_VAR Variable for debugging
+      # -----------------------------------------------------------------------------
+      - name: DEBUG - Dump job github var
+        if: env.DEBUG == 'true'
+        run: |
+          echo "$GITHUB_VAR"
+        env:
+          GITHUB_VAR: ${{ toJson(github) }}
