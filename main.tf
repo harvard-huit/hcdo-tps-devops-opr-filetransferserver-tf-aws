@@ -96,7 +96,7 @@ locals {
       backup_policy = "11PM_DAILY"
       security_group_ids = [module.ec2_sg.sg.id]
       #subnet_id     = module.metadata.vpc_config.subnets["level4"]["app"][0]
-      subnet_id       = "subnet-04d1ec120efa1d573"
+      subnet_id       = "subnet-7a518d1e"
       fqdn          = "${var.product_name}-app01.${var.route53_zone_name}"
       iam_instance_profile_name = var.iam_instance_profile_name
     }
