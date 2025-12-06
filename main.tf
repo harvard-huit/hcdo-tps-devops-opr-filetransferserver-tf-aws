@@ -47,19 +47,19 @@ module "ec2_sg" {
       description = "VPN Tunnel (socdbadmin)."
     },
     "devops" = {
-      from_port   = 22
-      to_port     = 22
+      from_port   = 3389
+      to_port     = 3389
       ip_protocol = "tcp"
       cidr_ipv4   = "10.142.34.64/26"
       description = "devops vdi"
-    },
-    "UNSGADMIN" = {
-      from_port   = 22
-      to_port     = 22
-      ip_protocol = "tcp"
-      cidr_ipv4   = "10.1.209.0/24"
-      description = "UNSGADMIN_VPN_TUNNEL"
     }
+    #"UNSGADMIN" = {
+      #from_port   = 3389
+      #to_port     = 3389
+      #ip_protocol = "tcp"
+     # cidr_ipv4   = "10.1.209.0/24"
+    #  description = "UNSGADMIN_VPN_TUNNEL"
+   # }
   }
 
 }
@@ -89,10 +89,10 @@ locals {
     01 = {
       tier          = "app"
       name          = "${module.constants.resource_prefix}-app-ec2-01"
-      ami           = "ami-052931429e6676282"
-      instance_type = "r7a.xlarge"
+      ami           = "ami-0bf2227ef651eea49"
+      instance_type = "r7a.large"
       static        = true
-      platform      = "linux"
+      platform      = "Windows"
       backup_policy = "11PM_DAILY"
       security_group_ids = [module.ec2_sg.sg.id]
       #subnet_id     = module.metadata.vpc_config.subnets["level4"]["app"][0]
@@ -135,7 +135,7 @@ module "ec2_instances" {
       delete_on_termination = false
       encrypted   = true
       volume_type = "gp3"
-      volume_size = 50
+      volume_size = 100
       kms_key_id  = module.ec2_kms_key.key_arn
       tags = {
         Name        = "${module.constants.resource_prefix}-app-ec2-0${each.key}"
@@ -159,7 +159,7 @@ module "ec2_instances" {
     },
   }
   tags = {
-      patch_policy = "Mon_11PM"
+      patch_policy = "week3"
       fqdn         = each.value.fqdn
       git_repo     = var.git_repo
   }
