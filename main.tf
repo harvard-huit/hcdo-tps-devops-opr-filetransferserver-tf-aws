@@ -92,7 +92,7 @@ locals {
       ami           = "ami-0bf2227ef651eea49"
       instance_type = "r7a.large"
       static        = true
-      platform      = "Windows"
+      platform      = "windows"
       backup_policy = "11PM_DAILY"
       security_group_ids = [module.ec2_sg.sg.id]
       #subnet_id     = module.metadata.vpc_config.subnets["level4"]["app"][0]
@@ -170,7 +170,7 @@ module "ec2_instances" {
 # -----------------------------------------------------------------------------
 data "aws_route53_zone" "this" {
   name = var.route53_zone_name
-  private_zone = true #"I have used this option because the hosted is private, comment this if you are using public hostedzone"
+  #private_zone = true #"I have used this option because the hosted is private, comment this if you are using public hostedzone"
   #name = "network.prod.cloud.huit.harvard.edu"
 }
 
