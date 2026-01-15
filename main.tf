@@ -52,12 +52,12 @@ module "ec2_sg" {
       ip_protocol = "tcp"
       cidr_ipv4   = "10.142.34.64/26"
       description = "devops vdi"
-    }
+    },
     "provost" = {
       from_port   = 3389
       to_port     = 3389
       ip_protocol = "tcp"
-      cidr_ipv4   = " 10.1.86.0/24"
+      cidr_ipv4   = "10.1.86.0/24"
       description = "provost-vpn-tunnel"
     }
   }
