@@ -58,7 +58,7 @@ variable "product_hosted_by" {
   validation {
     condition     = contains(["DevOps-APT12", "DevOps-APT3", "DevOps-APT4", "DevOps-APT4-OT", "DevOps-APT5", "DevOps-APT6", "DevOps-APT7", "DevOps-APT8", "Not-Defined"], var.product_hosted_by)
     error_message = "Produce hosted_by value must be on of the following values: 'DevOps-APT12', 'DevOps-APT3', 'DevOps-APT4', 'DevOps-APT4-OT', 'DevOps-APT5', 'DevOps-APT6', 'DevOps-APT6', 'DevOps-APT6', 'Not-Defined'"
-  } 
+  }
 }
 
 variable "product_criticality" {
@@ -78,15 +78,28 @@ variable "product_data_class" {
   validation {
     condition     = contains(["level4", "nonlevel4"], var.product_data_class)
     error_message = "Product data_class must be on of the following values: 'level4' or 'nonlevel4'"
-}
-}
-variable "tier" {
-  description = "The application tier being deployed, e.g. app, db, lb_pub, or lb_priv."
-  type        = string
-  default     = "app"
-
-  validation {
-    condition     = contains(["app", "db", "lb_pub", "lb_priv"], var.tier)
-    error_message = "Tier must be one of the following values: 'app', 'db', 'lb_pub', or 'lb_priv'"
   }
+}
+variable "route53_zone_name" {
+  description = "The Route53 zone name to use for this product. This is used to determine the DNS entries created for this product."
+  type        = string
+  #default     ="hacks.dev.cloud.huit.harvard.edu"
+}
+
+variable "ec2_keypair_name" {
+  description = "The name of the EC2 keypair to use for SSH access to the EC2 instances. This keypair must already exist in the AWS account."
+  type        = string
+ # default     = "ansibletesting"
+
+}
+
+variable "git_repo" {
+  description = "The Git repository to use for this product."
+  type        = string
+}
+
+variable "iam_instance_profile_name" {
+  description = "The IAM instance profile name."
+  type        = string
+  default     = ""
 }
