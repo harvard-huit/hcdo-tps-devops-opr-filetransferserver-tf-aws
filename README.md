@@ -1,3 +1,5 @@
+**********This App has been decommed as per CHG0040759**********
+
 # AWS Terraform App Template
 
 ## 1.1. Purpose
